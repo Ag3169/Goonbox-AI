@@ -1,0 +1,3 @@
+groq>=0.11.0
+python-dotenv>=1.0.0
+tkinterweb>=0.4.0
