@@ -4379,18 +4379,28 @@ class GroqChatroomApp(tk.Tk):
             (r'\(let me think.*?\)', re.IGNORECASE),
             (r'\(reasoning:.*?\)', re.IGNORECASE),
             (r'\(thinking.*?\)', re.IGNORECASE),
+            # Additional patterns that might appear with high reasoning effort
+            (r'(?i)(thought process:|reasoning:|thinking:|analysis:)\s*(.*?)(?=\n\n|\Z)', re.DOTALL),
+            (r'(?i)(step 1:|step 2:|step 3:|first,|next,|then,|finally,).*?(?=\n\n|\Z)', re.DOTALL),
+            (r'(?i)(plan:|strategy:)\s*(.*?)(?=\n\n|\Z)', re.DOTALL),
+            (r'\[\*\*\s*T(?:hought|HINKING|RATEGY|LAN)\s*\*\*\].*?(?=\n\n|\Z)', re.DOTALL),
         ]
-        
+
         thought_process = None
-        
+
         for pattern, flags in patterns:
             matches = re.findall(pattern, text, flags)
             if matches:
                 # Extract the longest thought process found
                 for match in matches:
-                    if thought_process is None or len(match) > len(thought_process):
-                        thought_process = match.strip()
-        
+                    # If it's a tuple (from groups), take the last non-empty element
+                    if isinstance(match, tuple):
+                        match_content = next((item for item in match if item), '')
+                    else:
+                        match_content = match
+                    if thought_process is None or len(match_content) > len(thought_process):
+                        thought_process = match_content.strip()
+
         if thought_process:
             # Remove the thought process from the visible text
             for pattern, flags in patterns:
@@ -4398,7 +4408,7 @@ class GroqChatroomApp(tk.Tk):
             # Clean up extra whitespace that might remain
             text = re.sub(r'\n\s*\n', '\n\n', text)  # Replace multiple newlines with double newline
             text = text.strip()
-        
+
         return text, thought_process
 
     def _add_message(
