@@ -525,6 +525,11 @@ class GroqChatroomApp(tk.Tk):
         self.conversations_path = CONVERSATIONS_PATH
         self.settings = self._load_settings()
 
+        # Update global prompts with saved values
+        global PYTHON_AGENT_PROMPT, WEB_AGENT_PROMPT
+        PYTHON_AGENT_PROMPT = self.settings.get("python_agent_prompt", PYTHON_AGENT_PROMPT)
+        WEB_AGENT_PROMPT = self.settings.get("web_agent_prompt", WEB_AGENT_PROMPT)
+
         # Feature modules initialization
         self.advanced_searcher = AdvancedSearcher()
         self.analytics_tracker = AnalyticsTracker()
@@ -676,6 +681,18 @@ class GroqChatroomApp(tk.Tk):
         self._hide_message_hover()
         self.stop_ide_code()
         self._save_conversations()
+        
+        # Update settings with current agent prompts before closing
+        if hasattr(self, 'agent_prompt_input') and self.agent_prompt_input:
+            current_prompt = self.agent_prompt_input.get("1.0", "end-1c").strip()
+            # Only save if it's not the default prompt (meaning user has customized it)
+            if current_prompt not in {PYTHON_AGENT_PROMPT, WEB_AGENT_PROMPT}:
+                # Update the appropriate prompt based on current IDE kind
+                if self.ide_kind_var.get() == "web":
+                    self.settings["web_agent_prompt"] = current_prompt
+                else:
+                    self.settings["python_agent_prompt"] = current_prompt
+        
         self.destroy()
 
     def _get_active_bg_color(self):
@@ -2080,254 +2097,223 @@ class GroqChatroomApp(tk.Tk):
 
     def _build_ide_agent_sidebar(self, parent: tk.Frame) -> None:
         """Build the IDE agent sidebar with controls, history, and output."""
-        top = tk.Frame(parent, bg=COLORS["sidebar"])
-        top.pack(fill="x", padx=12, pady=(12, 8))
+        # Main container for the agent chat interface
+        agent_main_container = tk.Frame(parent, bg=COLORS["sidebar"])
+        agent_main_container.pack(fill="both", expand=True)
+
+        # Header with title and new chat button
+        header = tk.Frame(agent_main_container, bg=COLORS["sidebar"], padx=10, pady=8)
+        header.pack(fill="x")
+
+        # Left side: Title and count
+        title_frame = tk.Frame(header, bg=COLORS["sidebar"])
+        title_frame.pack(side="left")
+
         tk.Label(
-            top,
-            text="Agent",
+            title_frame,
+            text="AI Assistant",
             bg=COLORS["sidebar"],
             fg=COLORS["text"],
-            font=("Consolas", 10, "bold"),
-        ).pack(side="left")
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side="left", padx=(0, 5))
+
+        # Right side: New chat button
         self.new_agent_chat_button = tk.Button(
-            top,
-            text="+ New",
+            header,
+            text="+ New Chat",
             command=self._create_agent_chat,
             bg=COLORS["entry_bg"],
             fg=COLORS["text"],
-            activebackground="#172135",
-            activeforeground=COLORS["text"],
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            padx=8,
-            pady=4,
-            font=("Segoe UI", 8, "bold"),
-            cursor="hand2",
-        )
-        self.new_agent_chat_button.pack(side="right")
-
-        tk.Label(
-            parent,
-            textvariable=self.agent_status_var,
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8),
-        ).pack(anchor="w", padx=12, pady=(0, 6))
-
-        tk.Label(
-            parent,
-            text="THREADS",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Consolas", 8, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 4))
-
-        chats_wrap = tk.Frame(parent, bg=COLORS["sidebar"])
-        chats_wrap.pack(fill="x", padx=12, pady=(0, 8))
-        self.agent_chat_listbox = tk.Listbox(
-            chats_wrap,
-            height=4,
-            bg=COLORS["list_bg"],
-            fg=COLORS["text"],
-            selectbackground=COLORS["button"],
-            selectforeground="#03100f",
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            relief="flat",
-            borderwidth=0,
-            activestyle="none",
-            font=("Segoe UI", 9),
-        )
-        self.agent_chat_listbox.pack(side="left", fill="x", expand=True)
-        self.agent_chat_listbox.bind("<<ListboxSelect>>", self._on_agent_chat_selected)
-        self.agent_chat_listbox.bind("<Button-3>", self._on_agent_chat_right_click)
-
-        chats_scroll = tk.Scrollbar(
-            chats_wrap,
-            orient="vertical",
-            command=self.agent_chat_listbox.yview,
-            troughcolor=COLORS["sidebar"],
-            bg=COLORS["entry_bg"],
-            activebackground="#1c2740",
-            bd=0,
-            highlightthickness=0,
-        )
-        chats_scroll.pack(side="right", fill="y")
-        self.agent_chat_listbox.configure(yscrollcommand=chats_scroll.set)
-
-        tk.Label(
-            parent,
-            text="SYSTEM PROMPT",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Consolas", 8, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 4))
-
-        self.agent_prompt_input = tk.Text(
-            parent,
-            wrap="word",
-            height=6,
-            bg=COLORS["entry_bg"],
-            fg=COLORS["text"],
-            insertbackground=COLORS["text"],
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            relief="flat",
-            font=("Segoe UI", 10),
-            padx=10,
-            pady=8,
-        )
-        self.agent_prompt_input.pack(fill="x", padx=12, pady=(0, 8))
-        self.agent_prompt_input.insert(
-            "1.0",
-            PYTHON_AGENT_PROMPT,
-        )
-        options = tk.Frame(parent, bg=COLORS["sidebar"])
-        options.pack(fill="x", padx=10, pady=(0, 8))
-        
-        tk.Label(
-            options,
-            text="GOAL / REQUEST",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Consolas", 8, "bold"),
-        ).pack(anchor="w", pady=(0, 4))
-
-        self.agent_goal_input = tk.Text(
-            options,
-            wrap="word",
-            height=3,
-            bg=COLORS["entry_bg"],
-            fg=COLORS["text"],
-            insertbackground=COLORS["text"],
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=6,
-        )
-        self.agent_goal_input.pack(fill="x", padx=0, pady=(0, 8))
-
-        context_options = tk.Frame(parent, bg=COLORS["sidebar"])
-        context_options.pack(fill="x", padx=10, pady=(0, 8))
-        tk.Checkbutton(
-            context_options,
-            text="Current file",
-            variable=self.agent_include_file_var,
-            bg=COLORS["sidebar"],
-            fg=COLORS["text"],
-            activebackground=COLORS["sidebar"],
-            activeforeground=COLORS["text"],
-            selectcolor=COLORS["entry_bg"],
-            highlightthickness=0,
-            font=("Segoe UI", 8),
-        ).pack(side="left")
-        tk.Checkbutton(
-            context_options,
-            text="Console output",
-            variable=self.agent_include_console_var,
-            bg=COLORS["sidebar"],
-            fg=COLORS["text"],
-            activebackground=COLORS["sidebar"],
-            activeforeground=COLORS["text"],
-            selectcolor=COLORS["entry_bg"],
-            highlightthickness=0,
-            font=("Segoe UI", 8),
-        ).pack(side="left", padx=(12, 0))
-
-        # Add provider/model selection controls for the agent
-        agent_model_frame = tk.Frame(parent, bg=COLORS["sidebar"])
-        agent_model_frame.pack(fill="x", padx=10, pady=(8, 8))
-
-        # Provider selection
-        tk.Label(
-            agent_model_frame,
-            text="Provider",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8, "bold"),
-        ).grid(row=0, column=0, sticky="w", pady=(0, 2))
-        
-        provider_choices = [PROVIDERS[key]["label"] for key in PROVIDERS]
-        self.agent_provider_label_var = tk.StringVar(value=PROVIDERS[self.provider_var.get()]["label"])
-        agent_provider_combo = ttk.Combobox(
-            agent_model_frame,
-            textvariable=self.agent_provider_label_var,
-            values=provider_choices,
-            state="readonly",
-            width=18,
-            style="Dark.TCombobox",
-        )
-        agent_provider_combo.grid(row=1, column=0, sticky="ew", pady=(0, 6))
-        agent_provider_combo.bind("<<ComboboxSelected>>", self._on_agent_provider_label_selected)
-        self.agent_provider_combo = agent_provider_combo
-
-        # Model selection
-        tk.Label(
-            agent_model_frame,
-            text="Model",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Segoe UI", 8, "bold"),
-        ).grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 2))
-        
-        self.agent_model_var = tk.StringVar(value=self.model_var.get())  # Initialize with current model
-        agent_model_combo = ttk.Combobox(
-            agent_model_frame,
-            textvariable=self.agent_model_var,
-            values=(MODEL_PLACEHOLDER,),
-            state="readonly",
-            width=22,
-            style="Dark.TCombobox",
-        )
-        agent_model_combo.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
-        self.agent_model_combo = agent_model_combo
-        
-        # Refresh models button
-        refresh_agent_models_btn = tk.Button(
-            agent_model_frame,
-            text="Refresh",
-            command=self._refresh_agent_models,
-            bg=COLORS["entry_bg"],
-            fg=COLORS["text"],
-            activebackground="#172135",
+            activebackground=COLORS["button_hover"],
             activeforeground=COLORS["text"],
             bd=0,
             highlightthickness=1,
             highlightbackground=COLORS["border"],
             padx=6,
-            pady=2,
-            font=("Segoe UI", 7, "bold"),
+            pady=3,
+            font=("Segoe UI", 8),
             cursor="hand2",
         )
-        refresh_agent_models_btn.grid(row=1, column=2, padx=(6, 0), sticky="ew")
+        self.new_agent_chat_button.pack(side="right")
 
-        agent_model_frame.columnconfigure(0, weight=1)
-        agent_model_frame.columnconfigure(1, weight=1)
-        agent_model_frame.columnconfigure(2, weight=0)
+        # Create a paned window to allow resizing between chat display and controls
+        paned_window = tk.PanedWindow(
+            agent_main_container,
+            orient="vertical",
+            bg=COLORS["sidebar"],
+            sashwidth=7,
+            sashpad=2,
+            bd=0,
+            relief="flat",
+            sashrelief="raised",
+            showhandle=True
+        )
+        paned_window.pack(fill="both", expand=True, padx=10, pady=(5, 5))
 
-        # Add reasoning effort control below the model selection
-        reasoning_frame = tk.Frame(parent, bg=COLORS["sidebar"])
-        reasoning_frame.pack(fill="x", padx=10, pady=(8, 8))
-        
+        # Chat display area - This will show the current conversation
+        chat_display_frame = tk.Frame(paned_window, bg=COLORS["entry_bg"], padx=5, pady=5)
+
+        # Create a canvas with scrollbar for the chat display
+        chat_canvas_frame = tk.Frame(chat_display_frame, bg=COLORS["entry_bg"])
+        chat_canvas_frame.pack(fill="both", expand=True)
+
+        self.agent_chat_canvas = tk.Canvas(
+            chat_canvas_frame,
+            bg=COLORS["entry_bg"],
+            highlightthickness=0,
+            bd=0
+        )
+
+        self.agent_chat_scrollbar = tk.Scrollbar(
+            chat_canvas_frame,
+            orient="vertical",
+            command=self.agent_chat_canvas.yview,
+            troughcolor=COLORS["entry_bg"],
+            bg=COLORS["entry_bg"],
+            activebackground=COLORS["button_hover"],
+            bd=0,
+            highlightthickness=0,
+        )
+
+        self.agent_chat_frame = tk.Frame(
+            self.agent_chat_canvas,
+            bg=COLORS["entry_bg"]
+        )
+
+        self.agent_chat_canvas.create_window((0, 0), window=self.agent_chat_frame, anchor="nw")
+
+        self.agent_chat_canvas.pack(side="left", fill="both", expand=True)
+        self.agent_chat_scrollbar.pack(side="right", fill="y")
+
+        self.agent_chat_canvas.configure(yscrollcommand=self.agent_chat_scrollbar.set)
+
+        # Bind the frame's size to the canvas scrolling
+        self.agent_chat_frame.bind(
+            "<Configure>",
+            lambda e: self.agent_chat_canvas.configure(scrollregion=self.agent_chat_canvas.bbox("all"))
+        )
+
+        # Bind mousewheel to canvas for scrolling
+        def _on_mousewheel(event):
+            self.agent_chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.agent_chat_canvas.bind("<MouseWheel>", _on_mousewheel)
+
+        # Add the chat display frame to the paned window
+        paned_window.add(chat_display_frame, stretch="always", minsize=150)
+
+        # Bottom frame for controls and input
+        bottom_frame = tk.Frame(paned_window, bg=COLORS["sidebar"])
+
+        # Hidden system prompt textbox - kept for internal use but not displayed in UI
+        self.agent_prompt_input = tk.Text(
+            bottom_frame,
+            wrap="word",
+            height=1,  # Minimal height since it's hidden
+            bg=COLORS["entry_bg"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            highlightthickness=0,  # No visible border
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=8,
+        )
+        # Pack but don't show in UI - will be controlled via settings
+        self.agent_prompt_input.pack(fill="x", pady=(0, 10), expand=False)
+        self.agent_prompt_input.insert(
+            "1.0",
+            PYTHON_AGENT_PROMPT,
+        )
+        # Hide the text widget by removing it from the layout
+        self.agent_prompt_input.pack_forget()
+
+        # Settings section
+        settings_frame = tk.Frame(bottom_frame, bg=COLORS["sidebar"], padx=5, pady=5)
+        settings_frame.pack(fill="x", pady=(0, 5))
+
+        # Provider selection
         tk.Label(
-            reasoning_frame,
-            text="Agent Reasoning Effort",
+            settings_frame,
+            text="Provider",
             bg=COLORS["sidebar"],
             fg=COLORS["muted"],
             font=("Segoe UI", 8, "bold"),
-        ).pack(anchor="w", pady=(0, 4))
-        
-        effort_radio_frame = tk.Frame(reasoning_frame, bg=COLORS["sidebar"])
-        effort_radio_frame.pack(anchor="w")
-        
+        ).pack(anchor="w", pady=(0, 2))
+
+        provider_choices = [PROVIDERS[key]["label"] for key in PROVIDERS]
+        self.agent_provider_label_var = tk.StringVar(value=PROVIDERS[self.provider_var.get()]["label"])
+        agent_provider_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.agent_provider_label_var,
+            values=provider_choices,
+            state="readonly",
+            width=18,
+            style="Dark.TCombobox",
+            font=("Segoe UI", 8)
+        )
+        agent_provider_combo.pack(fill="x", pady=(0, 8))
+        agent_provider_combo.bind("<<ComboboxSelected>>", self._on_agent_provider_label_selected)
+        self.agent_provider_combo = agent_provider_combo
+
+        # Model selection
+        tk.Label(
+            settings_frame,
+            text="Model",
+            bg=COLORS["sidebar"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor="w", pady=(0, 2))
+
+        self.agent_model_var = tk.StringVar(value=self.model_var.get())  # Initialize with current model
+        agent_model_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.agent_model_var,
+            values=(MODEL_PLACEHOLDER,),
+            state="readonly",
+            width=18,
+            style="Dark.TCombobox",
+            font=("Segoe UI", 8)
+        )
+        agent_model_combo.pack(fill="x", pady=(0, 8))
+        self.agent_model_combo = agent_model_combo
+
+        # Refresh models button
+        refresh_agent_models_btn = tk.Button(
+            settings_frame,
+            text="Refresh Models",
+            command=self._refresh_agent_models,
+            bg=COLORS["entry_bg"],
+            fg=COLORS["text"],
+            activebackground=COLORS["button_hover"],
+            activeforeground=COLORS["text"],
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            padx=6,
+            pady=4,
+            font=("Segoe UI", 8),
+            cursor="hand2",
+        )
+        refresh_agent_models_btn.pack(fill="x", pady=(0, 10))
+
+        # Reasoning effort control
+        tk.Label(
+            settings_frame,
+            text="Reasoning Effort",
+            bg=COLORS["sidebar"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor="w", pady=(0, 2))
+
+        effort_radio_frame = tk.Frame(settings_frame, bg=COLORS["sidebar"])
+        effort_radio_frame.pack(fill="x", pady=(0, 10))
+
         # Create the reasoning effort variable if it doesn't exist
         if not hasattr(self, 'agent_reasoning_effort_var'):
             self.agent_reasoning_effort_var = tk.IntVar(value=1)  # Default to standard effort
-        
-        tk.Radiobutton(
+
+        low_radio = tk.Radiobutton(
             effort_radio_frame,
             text="Low",
             variable=self.agent_reasoning_effort_var,
@@ -2337,9 +2323,11 @@ class GroqChatroomApp(tk.Tk):
             selectcolor=COLORS["entry_bg"],
             activebackground=COLORS["sidebar"],
             activeforeground=COLORS["text"],
-        ).pack(side="left")
-        
-        tk.Radiobutton(
+            font=("Segoe UI", 8)
+        )
+        low_radio.pack(side="left", padx=(0, 10))
+
+        standard_radio = tk.Radiobutton(
             effort_radio_frame,
             text="Standard",
             variable=self.agent_reasoning_effort_var,
@@ -2349,9 +2337,11 @@ class GroqChatroomApp(tk.Tk):
             selectcolor=COLORS["entry_bg"],
             activebackground=COLORS["sidebar"],
             activeforeground=COLORS["text"],
-        ).pack(side="left", padx=(8, 0))
-        
-        tk.Radiobutton(
+            font=("Segoe UI", 8)
+        )
+        standard_radio.pack(side="left", padx=(0, 10))
+
+        high_radio = tk.Radiobutton(
             effort_radio_frame,
             text="High",
             variable=self.agent_reasoning_effort_var,
@@ -2361,84 +2351,83 @@ class GroqChatroomApp(tk.Tk):
             selectcolor=COLORS["entry_bg"],
             activebackground=COLORS["sidebar"],
             activeforeground=COLORS["text"],
-        ).pack(side="left", padx=(8, 0))
+            font=("Segoe UI", 8)
+        )
+        high_radio.pack(side="left")
 
-        # Initialize agent model menu with the current provider
-        current_provider = self._provider_from_label(self.agent_provider_label_var.get())
-        self._apply_agent_model_menu(current_provider)
+        # Action buttons
+        button_frame = tk.Frame(settings_frame, bg=COLORS["sidebar"])
+        button_frame.pack(fill="x", pady=(5, 0))
 
-        button_row = tk.Frame(parent, bg=COLORS["sidebar"])
-        button_row.pack(fill="x", padx=12, pady=(0, 10))
         self.agent_run_button = tk.Button(
-            button_row,
-            text="Run Agent",
-            command=self.run_ide_agent,
+            button_frame,
+            text="Submit",
+            command=self.send_agent_message,
             bg=COLORS["button"],
-            fg="#04100f",
+            fg="#ffffff",
             activebackground=COLORS["button_hover"],
-            activeforeground="#04100f",
+            activeforeground="#ffffff",
             bd=0,
             padx=10,
             pady=6,
             font=("Segoe UI", 9, "bold"),
             cursor="hand2",
         )
-        self.agent_run_button.pack(side="left")
+        self.agent_run_button.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
         clear_btn = tk.Button(
-            button_row,
+            button_frame,
             text="Clear",
             command=self.clear_agent_output,
             bg=COLORS["entry_bg"],
             fg=COLORS["text"],
-            activebackground="#172135",
+            activebackground=COLORS["button_hover"],
             activeforeground=COLORS["text"],
             bd=0,
             highlightthickness=1,
             highlightbackground=COLORS["border"],
             padx=10,
             pady=6,
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 9),
             cursor="hand2",
         )
-        clear_btn.pack(side="left", padx=(8, 0))
+        clear_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
-        tk.Label(
-            parent,
-            text="OUTPUT",
-            bg=COLORS["sidebar"],
-            fg=COLORS["muted"],
-            font=("Consolas", 8, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 4))
+        # Input area for communicating with the agent
+        input_frame = tk.Frame(bottom_frame, bg=COLORS["sidebar"], padx=5, pady=5)
+        input_frame.pack(fill="x", pady=(5, 0))
 
-        output_wrap = tk.Frame(parent, bg=COLORS["sidebar"])
-        output_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        self.agent_output = tk.Text(
-            output_wrap,
+        self.agent_input_box = tk.Text(
+            input_frame,
             wrap="word",
+            height=3,
             bg=COLORS["entry_bg"],
             fg=COLORS["text"],
             insertbackground=COLORS["text"],
             highlightthickness=1,
             highlightbackground=COLORS["border"],
             relief="flat",
-            font=("Consolas", 9),
-            padx=10,
-            pady=8,
-            state="disabled",
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=8
         )
-        self.agent_output.pack(side="left", fill="both", expand=True)
-        agent_scroll = tk.Scrollbar(
-            output_wrap,
-            orient="vertical",
-            command=self.agent_output.yview,
-            troughcolor=COLORS["sidebar"],
-            bg=COLORS["entry_bg"],
-            activebackground="#1c2740",
-            bd=0,
-            highlightthickness=0,
-        )
-        agent_scroll.pack(side="right", fill="y")
-        self.agent_output.configure(yscrollcommand=agent_scroll.set)
+        self.agent_input_box.pack(fill="x", pady=(0, 5))
+        self.agent_input_box.bind("<Return>", self._on_agent_enter_press)
+
+        # Status label
+        status_frame = tk.Frame(bottom_frame, bg=COLORS["sidebar"], padx=5, pady=5)
+        status_frame.pack(fill="x", side="bottom")
+
+        tk.Label(
+            status_frame,
+            textvariable=self.agent_status_var,
+            bg=COLORS["sidebar"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8),
+        ).pack(anchor="w")
+
+        # Add the bottom frame to the paned window
+        paned_window.add(bottom_frame, stretch="never", minsize=200)
 
     def switch_mode(self, mode: str) -> None:
         """Switch between chatroom and IDE modes and update visible panels."""
@@ -2512,15 +2501,18 @@ class GroqChatroomApp(tk.Tk):
     def _agent_prompt_for_kind(self, kind: str | None = None) -> str:
         """Return the default agent prompt for the active IDE kind."""
         ide_kind = kind if kind in {"python", "web"} else self.ide_kind_var.get()
-        return WEB_AGENT_PROMPT if ide_kind == "web" else PYTHON_AGENT_PROMPT
+        if ide_kind == "web":
+            return self.settings.get("web_agent_prompt", WEB_AGENT_PROMPT)
+        else:
+            return self.settings.get("python_agent_prompt", PYTHON_AGENT_PROMPT)
 
     def _sync_agent_prompt_with_ide_kind(self, force: bool = False) -> None:
         """Update the agent prompt text when switching IDE kinds, preserving user edits."""
         if not hasattr(self, "agent_prompt_input"):
             return
         current_prompt = self.agent_prompt_input.get("1.0", "end-1c").strip()
-        known_defaults = {PYTHON_AGENT_PROMPT, WEB_AGENT_PROMPT}
-        if force or not current_prompt or current_prompt in known_defaults:
+        # Check if current prompt matches the default prompts
+        if force or not current_prompt or current_prompt in {PYTHON_AGENT_PROMPT, WEB_AGENT_PROMPT}:
             self.agent_prompt_input.delete("1.0", "end")
             self.agent_prompt_input.insert("1.0", self._agent_prompt_for_kind())
 
@@ -2698,6 +2690,9 @@ class GroqChatroomApp(tk.Tk):
             "api_keys": {},
             "default_provider": DEFAULT_PROVIDER,
             "default_model": "",
+            "chat_system_prompt": "You are a helpful AI assistant inside a desktop chatroom app.",
+            "python_agent_prompt": PYTHON_AGENT_PROMPT,
+            "web_agent_prompt": WEB_AGENT_PROMPT,
         }
         if not self.settings_path.exists():
             return defaults
@@ -2730,10 +2725,19 @@ class GroqChatroomApp(tk.Tk):
             default_provider = DEFAULT_PROVIDER
 
         default_model = str(payload.get("default_model", "")).strip()
+        
+        # Load system prompts from settings if available
+        chat_system_prompt = str(payload.get("chat_system_prompt", defaults["chat_system_prompt"]))
+        python_agent_prompt = str(payload.get("python_agent_prompt", defaults["python_agent_prompt"]))
+        web_agent_prompt = str(payload.get("web_agent_prompt", defaults["web_agent_prompt"]))
+        
         return {
             "api_keys": api_keys,
             "default_provider": default_provider,
             "default_model": default_model,
+            "chat_system_prompt": chat_system_prompt,
+            "python_agent_prompt": python_agent_prompt,
+            "web_agent_prompt": web_agent_prompt,
         }
 
     def _save_settings(
@@ -2746,6 +2750,9 @@ class GroqChatroomApp(tk.Tk):
         font_size: int = None,
         editor_font_family: str = None,
         editor_font_size: int = None,
+        chat_system_prompt: str = None,
+        python_agent_prompt: str = None,
+        web_agent_prompt: str = None,
     ) -> None:
         """Save settings to persistent storage including visual preferences."""
         clean_keys = {
@@ -2772,6 +2779,12 @@ class GroqChatroomApp(tk.Tk):
             payload["editor_font_family"] = editor_font_family
         if editor_font_size is not None:
             payload["editor_font_size"] = editor_font_size
+        if chat_system_prompt is not None:
+            payload["chat_system_prompt"] = chat_system_prompt
+        if python_agent_prompt is not None:
+            payload["python_agent_prompt"] = python_agent_prompt
+        if web_agent_prompt is not None:
+            payload["web_agent_prompt"] = web_agent_prompt
 
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
         self.settings_path.write_text(
@@ -3796,6 +3809,103 @@ class GroqChatroomApp(tk.Tk):
             justify="left",
         ).pack(anchor="w", pady=(20, 0))
 
+        # ===== Tab 4: System Prompts =====
+        prompts_tab = tk.Frame(notebook, bg=COLORS["panel"])
+        notebook.add(prompts_tab, text="System Prompts")
+
+        # System Prompts Content
+        prompts_content = tk.Frame(prompts_tab, bg=COLORS["panel"])
+        prompts_content.pack(fill="both", expand=True, padx=16, pady=16)
+
+        tk.Label(
+            prompts_content,
+            text="System Prompts",
+            bg=COLORS["panel"],
+            fg=COLORS["text"],
+            font=("Segoe UI", 12, "bold"),
+        ).pack(anchor="w", pady=(0, 12))
+
+        # Chatroom System Prompt
+        tk.Label(
+            prompts_content,
+            text="Chatroom System Prompt",
+            bg=COLORS["panel"],
+            fg=COLORS["text"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 5))
+
+        chat_system_prompt_var = tk.StringVar(value=os.getenv(
+            "SYSTEM_PROMPT",
+            "You are a helpful AI assistant inside a desktop chatroom app."
+        ))
+
+        chat_prompt_entry = tk.Entry(
+            prompts_content,
+            textvariable=chat_system_prompt_var,
+            bg=COLORS["entry_bg"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            relief="flat",
+            font=("Segoe UI", 10),
+        )
+        chat_prompt_entry.pack(fill="x", pady=(0, 15))
+
+        # Python Agent System Prompt
+        tk.Label(
+            prompts_content,
+            text="Python Agent System Prompt",
+            bg=COLORS["panel"],
+            fg=COLORS["text"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 5))
+
+        python_agent_prompt_var = tk.StringVar(value=PYTHON_AGENT_PROMPT)
+
+        python_agent_prompt_text = tk.Text(
+            prompts_content,
+            height=6,
+            bg=COLORS["entry_bg"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=8,
+        )
+        python_agent_prompt_text.pack(fill="x", pady=(0, 15))
+        python_agent_prompt_text.insert("1.0", PYTHON_AGENT_PROMPT)
+
+        # Web Agent System Prompt
+        tk.Label(
+            prompts_content,
+            text="Web Agent System Prompt",
+            bg=COLORS["panel"],
+            fg=COLORS["text"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 5))
+
+        web_agent_prompt_var = tk.StringVar(value=WEB_AGENT_PROMPT)
+
+        web_agent_prompt_text = tk.Text(
+            prompts_content,
+            height=6,
+            bg=COLORS["entry_bg"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=8,
+        )
+        web_agent_prompt_text.pack(fill="x", pady=(0, 15))
+        web_agent_prompt_text.insert("1.0", WEB_AGENT_PROMPT)
+
         # ===== Info and Buttons =====
         info_var = tk.StringVar(value="")
 
@@ -3834,6 +3944,11 @@ class GroqChatroomApp(tk.Tk):
                 info_var.set("Choose a valid default provider.")
                 return
 
+            # Get the system prompt values
+            chat_system_prompt = chat_system_prompt_var.get()
+            python_agent_prompt = python_agent_prompt_text.get("1.0", "end-1c")
+            web_agent_prompt = web_agent_prompt_text.get("1.0", "end-1c")
+
             try:
                 self._save_settings(
                     api_keys={k: v.get().strip() for k, v in key_vars.items()},
@@ -3844,6 +3959,9 @@ class GroqChatroomApp(tk.Tk):
                     font_size=font_size_var.get(),
                     editor_font_family=editor_font_var.get(),
                     editor_font_size=editor_font_size_var.get(),
+                    chat_system_prompt=chat_system_prompt,
+                    python_agent_prompt=python_agent_prompt,
+                    web_agent_prompt=web_agent_prompt,
                 )
             except OSError as exc:
                 info_var.set(f"Could not save settings: {exc}")
@@ -3865,6 +3983,21 @@ class GroqChatroomApp(tk.Tk):
                 preferred_model=self.model_var.get(),
                 show_status=False,
             )
+
+            # Update the global agent prompts
+            global PYTHON_AGENT_PROMPT, WEB_AGENT_PROMPT
+            PYTHON_AGENT_PROMPT = python_agent_prompt
+            WEB_AGENT_PROMPT = web_agent_prompt
+
+            # Update the agent prompt input in the UI if it exists
+            if hasattr(self, 'agent_prompt_input'):
+                # Update based on current IDE kind
+                current_prompt = self.agent_prompt_input.get("1.0", "end-1c").strip()
+                # Only update if it's the default prompt (not user-modified)
+                if current_prompt == PYTHON_AGENT_PROMPT or current_prompt == WEB_AGENT_PROMPT:
+                    agent_prompt = self._agent_prompt_for_kind()
+                    self.agent_prompt_input.delete("1.0", "end")
+                    self.agent_prompt_input.insert("1.0", agent_prompt)
 
             # Apply the new theme to all UI elements
             self._apply_theme_globally()
@@ -4277,37 +4410,127 @@ class GroqChatroomApp(tk.Tk):
 
     def _refresh_agent_chat_list(self) -> None:
         """Refresh agent chat list to match current state."""
-        self._suppress_agent_select = True
-        self.agent_chat_listbox.delete(0, "end")
-        selected_index = None
-        for idx, chat in enumerate(self.agent_chats):
-            title = str(chat.get("title", f"Agent Chat {idx + 1}"))
-            self.agent_chat_listbox.insert("end", title)
-            if chat.get("id") == self.current_agent_chat_id:
-                selected_index = idx
-
-        if selected_index is not None:
-            self.agent_chat_listbox.selection_clear(0, "end")
-            self.agent_chat_listbox.selection_set(selected_index)
-            self.agent_chat_listbox.activate(selected_index)
-        self._suppress_agent_select = False
+        # In the new design, we don't have a visible chat listbox in the sidebar anymore
+        # This method is kept for compatibility but does nothing
+        # The chat list functionality has been replaced with the conversation display
+        pass
 
     def _on_agent_chat_selected(self, _event: tk.Event) -> None:
         """Handle the agent chat selected event."""
-        if self._suppress_agent_select or self.agent_running:
+        # For now, we don't have a visible chat listbox in the sidebar
+        # This method is kept for potential future use
+        pass
+
+    def _on_agent_chat_double_click(self, _event: tk.Event) -> None:
+        """Handle the agent chat double click event to enter the thread."""
+        # In the new design, we don't have a chat listbox in the sidebar
+        # This method is kept for compatibility but does nothing
+        pass
+
+    def _on_agent_enter_press(self, event: tk.Event) -> str | None:
+        """Handle the enter press event for agent input."""
+        if event.state & 0x0001:  # Shift key is pressed
+            return None  # Allow new line with Shift+Enter
+        self.send_agent_message()
+        return "break"
+
+    def send_agent_message(self) -> None:
+        """Send a message to the agent in the current chat."""
+        if self.agent_running:
             return
-        selection = self.agent_chat_listbox.curselection()
-        if not selection:
+
+        agent_chat = self._current_agent_chat()
+        if agent_chat is None:
+            self._create_agent_chat()
+            agent_chat = self._current_agent_chat()
+        if agent_chat is None:
             return
-        index = int(selection[0])
-        if index < 0 or index >= len(self.agent_chats):
+
+        user_text = self.agent_input_box.get("1.0", "end-1c").strip()
+        if not user_text:
             return
-        chat_id = str(self.agent_chats[index]["id"])
-        if chat_id == self.current_agent_chat_id:
-            return
-        self.current_agent_chat_id = chat_id
-        self._render_current_agent_chat()
+
+        # Build context blocks similar to the original run_ide_agent
+        context_blocks: list[str] = []
+        
+        # Always include current file if there's content in the editor, especially for edit requests
+        # Check if the user's request indicates they want to edit or modify the current code
+        wants_to_edit = any(word in user_text.lower() for word in ["edit", "change", "modify", "update", "improve", "fix", "adjust", "refactor", "enhance", "tweak", "alter", "work on", "change the"])
+        
+        if wants_to_edit or (self.ide_current_file and self.ide_editor.get("1.0", "end-1c").strip()):
+            code = self.ide_editor.get("1.0", "end-1c").strip()
+            filename = (
+                self._display_path(self.ide_current_file)
+                if self.ide_current_file is not None
+                else "scratch.py"
+            )
+            if code:
+                # Filter out temporary attachment paths from the code content
+                # This prevents the agent from echoing back attachment paths
+                filtered_code = self._filter_attachment_paths_from_text(code)
+
+                # Only include in context if there's meaningful content after filtering
+                if filtered_code.strip():
+                    context_blocks.append(f"Current file ({filename}):\n```python\n{filtered_code}\n```")
+        
+        # Include console output if relevant
+        if "console" in user_text.lower() or "output" in user_text.lower():
+            console = self.ide_output.get("1.0", "end-1c").strip()
+            if console:
+                # Filter out temporary attachment paths from console output before sending to agent
+                filtered_console = self._filter_attachment_paths_from_text(console)
+                if filtered_console.strip():  # Only add if there's content after filtering
+                    context_blocks.append(f"Console output:\n```\n{filtered_console}\n```")
+
+        # Build the user message with context
+        user_message = f"User request:\n{user_text}"
+        if context_blocks:
+            context_text = "\n\n".join(context_blocks)
+            user_message += f"\n\nContext:\n{context_text}"
+
+        messages = agent_chat.get("messages")
+        if not isinstance(messages, list):
+            messages = []
+            agent_chat["messages"] = messages
+        
+        # Add user message to chat history
+        user_meta = self._normalize_message_meta({}, role="user", content=user_message)
+        messages.append({"role": "user", "content": user_message, "meta": user_meta})
+        
+        # Add user message to the display (just the original text)
+        self._append_agent_output(f"You: {user_text}", "user")
+
+        user_count = sum(1 for m in messages if isinstance(m, dict) and m.get("role") == "user")
+        if user_count == 1:
+            agent_chat["title"] = self._agent_chat_title_from_text(user_text)
+            self._refresh_agent_chat_list()
+
         self._save_conversations()
+
+        # Clear input box
+        self.agent_input_box.delete("1.0", "end")
+
+        chat_id = str(agent_chat["id"])
+        self._set_agent_running(True)
+        self.agent_status_var.set("Thinking...")
+        self._append_agent_output("Agent is thinking...", "system")
+
+        # Thread payload is detached from mutable UI state before background execution.
+        history = [dict(item) for item in messages if isinstance(item, dict)]
+        # Use agent-specific provider and model if they exist, otherwise fall back to global
+        if hasattr(self, 'agent_provider_label_var') and hasattr(self, 'agent_model_var'):
+            provider = self._provider_from_label(self.agent_provider_label_var.get()).strip().lower()
+            model = self.agent_model_var.get().strip()
+        else:
+            provider = self.provider_var.get().strip().lower()
+            model = self.model_var.get().strip()
+        
+        thread = threading.Thread(
+            target=self._request_ide_agent,
+            args=(history, provider, model, chat_id),
+            daemon=True,
+        )
+        thread.start()
 
     def _on_chat_right_click(self, event: tk.Event) -> None:
         """Handle right-click on chat listbox to show context menu."""
@@ -4618,7 +4841,10 @@ class GroqChatroomApp(tk.Tk):
 
     def _render_current_agent_chat(self) -> None:
         """Render current agent chat in the active panel."""
-        self.clear_agent_output()
+        # Clear the chat display area first
+        for widget in self.agent_chat_frame.winfo_children():
+            widget.destroy()
+        
         chat = self._current_agent_chat()
         if chat is None:
             self.agent_status_var.set("Idle")
@@ -4633,16 +4859,19 @@ class GroqChatroomApp(tk.Tk):
                 content = str(item.get("content", "")).strip()
                 if not content:
                     continue
+                
+                # Format the message differently based on role
                 if role == "assistant":
-                    title = "Agent"
+                    self._append_agent_output(f"Agent: {content}", "assistant")
                 elif role == "user":
-                    title = "You"
-                else:
-                    title = "System"
-                self._append_agent_output(f"{title}:\n{content}\n\n")
+                    self._append_agent_output(f"You: {content}", "user")
+                else:  # system
+                    self._append_agent_output(f"System: {content}", "system")
 
         if not self.agent_running:
             self.agent_status_var.set("Idle")
+        else:
+            self.agent_status_var.set("Processing...")
 
     def _render_current_chat(self) -> None:
         """Render current chat in the active panel."""
@@ -4695,7 +4924,8 @@ class GroqChatroomApp(tk.Tk):
         state = "normal" if enabled else "disabled"
         self.agent_run_button.configure(state=state)
         self.new_agent_chat_button.configure(state=state)
-        self.agent_chat_listbox.configure(state=state)
+        # Note: agent_chat_listbox no longer exists in the new design
+        # Only the buttons are disabled/enabled in the new design
 
     def _refresh_scroll_region(self, _event: tk.Event) -> None:
         """Refresh scroll region to match current state."""
@@ -4994,9 +5224,13 @@ class GroqChatroomApp(tk.Tk):
 
         # Ensure conversations always have a leading system instruction for stable behavior.
         if not cleaned or cleaned[0]["role"] != "system":
-            system_prompt = os.getenv(
-                "SYSTEM_PROMPT",
-                "You are a helpful AI assistant inside a desktop chatroom app.",
+            # Use the saved system prompt from settings, falling back to environment or default
+            system_prompt = self.settings.get(
+                "chat_system_prompt",
+                os.getenv(
+                    "SYSTEM_PROMPT",
+                    "You are a helpful AI assistant inside a desktop chatroom app.",
+                )
             )
             cleaned.insert(0, {"role": "system", "content": system_prompt})
 
@@ -5039,7 +5273,7 @@ class GroqChatroomApp(tk.Tk):
 
             # Filter out temporary attachment paths from the content
             filtered_content = self._filter_attachment_paths_from_text(content)
-            
+
             # Only add if there's content after filtering
             if filtered_content.strip():
                 cleaned.append({"role": role, "content": filtered_content})
@@ -5054,9 +5288,9 @@ class GroqChatroomApp(tk.Tk):
         else:
             # Fallback to defaults if UI not available (shouldn't happen in normal usage)
             if ide_kind == "web":
-                system_prompt = WEB_AGENT_PROMPT
+                system_prompt = self.settings.get("web_agent_prompt", WEB_AGENT_PROMPT)
             else:
-                system_prompt = PYTHON_AGENT_PROMPT
+                system_prompt = self.settings.get("python_agent_prompt", PYTHON_AGENT_PROMPT)
 
         # Step 3: If system prompt is still empty, use environment variables or hardcoded defaults
         # This provides multiple layers of fallback to ensure we always have a prompt
@@ -5064,12 +5298,12 @@ class GroqChatroomApp(tk.Tk):
             if ide_kind == "web":
                 system_prompt = os.getenv(
                     "AGENT_SYSTEM_PROMPT_WEB",
-                    WEB_AGENT_PROMPT,
+                    self.settings.get("web_agent_prompt", WEB_AGENT_PROMPT),
                 )
             else:
                 system_prompt = os.getenv(
                     "AGENT_SYSTEM_PROMPT",
-                    PYTHON_AGENT_PROMPT,
+                    self.settings.get("python_agent_prompt", PYTHON_AGENT_PROMPT),
                 )
 
         # Step 4: Remove any existing system messages and add fresh one at the start
@@ -6458,20 +6692,128 @@ class GroqChatroomApp(tk.Tk):
         self.switch_mode("chat")
         self.send_message(preset_text=prompt)
 
-    def _append_agent_output(self, text: str) -> None:
+    def _append_agent_output(self, text: str, role: str = "assistant") -> None:
         """Append agent output to the visible output area."""
-        if not text:
-            return
-        self.agent_output.configure(state="normal")
-        self.agent_output.insert("end", text)
-        self.agent_output.see("end")
-        self.agent_output.configure(state="disabled")
+        # In the new design, agent output is shown in the agent chat display area in the sidebar
+        if text.strip():
+            # Determine background color based on role
+            if role == "user":
+                bg_color = COLORS["user_bubble"]
+                fg_color = COLORS["text"]
+                align = "e"  # Right align for user messages
+            elif role == "system":
+                bg_color = COLORS["system_bubble"]
+                fg_color = COLORS["muted"]
+                align = "center"  # Center align for system messages
+            else:  # assistant
+                bg_color = COLORS["assistant_bubble"]
+                fg_color = COLORS["text"]
+                align = "w"  # Left align for assistant messages
+            
+            # Create a frame to hold the message bubble
+            bubble_frame = tk.Frame(self.agent_chat_frame, bg=COLORS["entry_bg"])
+            
+            # Calculate wrap length based on available width
+            # Get the width of the chat frame to determine appropriate wrap length
+            try:
+                # Update the frame to ensure dimensions are calculated
+                self.agent_chat_frame.update_idletasks()
+                # Get the actual width of the chat canvas to calculate appropriate wrap length
+                canvas_width = self.agent_chat_frame.winfo_width()
+                if canvas_width <= 1:  # If width hasn't been calculated yet
+                    canvas_width = 300  # Use a reasonable default
+                # Account for padding and margins (approximately 60px total)
+                wrap_length = max(100, canvas_width - 80)  # Leave some padding
+            except:
+                wrap_length = 220  # Default fallback
+            
+            # Create the message label with rounded corners effect using padding
+            msg_label = tk.Label(
+                bubble_frame,
+                text=text,
+                bg=bg_color,
+                fg=fg_color,
+                wraplength=wrap_length,
+                justify="left" if role != "system" else "center",
+                font=("Segoe UI", 10),
+                padx=12,
+                pady=8,
+                relief="flat"
+            )
+            
+            # Pack the label based on the role (alignment)
+            if align == "e":  # User message - right aligned
+                msg_label.pack(side="right", padx=5, pady=2, fill="x", expand=True)
+                bubble_frame.pack(fill="x", padx=(30, 5), pady=2, anchor="e")
+            elif align == "center":  # System message - center aligned
+                msg_label.pack(side="top", padx=5, pady=2, fill="x", expand=True)
+                bubble_frame.pack(fill="x", padx=20, pady=2, anchor="center")
+            else:  # Assistant message - left aligned
+                msg_label.pack(side="left", padx=5, pady=2, fill="x", expand=True)
+                bubble_frame.pack(fill="x", padx=(5, 30), pady=2, anchor="w")
+            
+            # Update the canvas scroll region
+            self.agent_chat_frame.update_idletasks()
+            self.agent_chat_canvas.configure(scrollregion=self.agent_chat_canvas.bbox("all"))
+            # Scroll to the bottom
+            self.agent_chat_canvas.yview_moveto(1.0)
+
+    def _create_agent_bubble(self, parent, role, text):
+        """Create a chat bubble for agent messages."""
+        # Define colors based on role
+        if role == "user":
+            bg_color = COLORS["user_bubble"]
+            fg_color = COLORS["text"]
+            align = "e"
+        elif role == "system":
+            bg_color = COLORS["system_bubble"]
+            fg_color = COLORS["muted"]
+            align = "center"
+        else:  # assistant
+            bg_color = COLORS["assistant_bubble"]
+            fg_color = COLORS["text"]
+            align = "w"
+            
+        # Create frame for the bubble
+        bubble_frame = tk.Frame(parent, bg=COLORS["panel"])
+        bubble_frame.pack(fill="x", padx=5, pady=3)
+        
+        # Create the text widget for the message
+        message_text = tk.Text(
+            bubble_frame,
+            wrap="word",
+            bg=bg_color,
+            fg=fg_color,
+            selectbackground=bg_color,
+            selectforeground=fg_color,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=8,
+            state="normal"
+        )
+        
+        # Insert the text
+        message_text.insert("1.0", text)
+        message_text.configure(state="disabled")
+        
+        # Pack based on alignment
+        if align == "e":
+            message_text.pack(side="right", fill="x", expand=True, padx=(30, 0))
+        elif align == "center":
+            message_text.pack(side="top", fill="x", padx=10)
+        else:  # w
+            message_text.pack(side="left", fill="x", expand=True, padx=(0, 30))
+            
+        return bubble_frame
 
     def clear_agent_output(self) -> None:
         """Clear the IDE agent output panel."""
-        self.agent_output.configure(state="normal")
-        self.agent_output.delete("1.0", "end")
-        self.agent_output.configure(state="disabled")
+        # Clear the chat display area in the sidebar
+        for widget in self.agent_chat_frame.winfo_children():
+            widget.destroy()
 
     def _set_agent_running(self, running: bool) -> None:
         """Set agent running state and related controls."""
@@ -6543,7 +6885,7 @@ class GroqChatroomApp(tk.Tk):
         self._render_current_agent_chat()
         self._set_agent_running(True)
         self.agent_status_var.set("Thinking...")
-        self._append_agent_output("Agent is thinking...\n\n")
+        self._append_agent_output("Agent is thinking...", "system")
 
         chat_id = str(agent_chat["id"])
         # Thread payload is detached from mutable UI state before background execution.
@@ -6905,7 +7247,7 @@ class GroqChatroomApp(tk.Tk):
                 # Get the chat ID and raw AI response
                 chat_id = event.get("chat_id", "")
                 raw_message = str(event.get("message", ""))
-                
+
                 # Filter out temporary attachment paths from the agent response BEFORE code extraction
                 # This prevents the agent from echoing back file paths instead of generating code
                 cleaned_message = self._filter_attachment_paths_from_text(raw_message)
@@ -6928,21 +7270,21 @@ class GroqChatroomApp(tk.Tk):
                     # Create a user-friendly summary for the chat window
                     chat_summary = f"✅ Code written to editor: {summary}"
 
-                    # Also show in the agent output panel below the editor
-                    self._append_agent_output(f"✅ {summary}\n\n")
+                    # Also show in the agent output panel
+                    self._append_agent_output(f"✅ {summary}", "assistant")
                 else:
                     # No code blocks found - agent is responding conversationally
                     # (e.g., asking clarifying questions, providing explanations)
                     first_line = cleaned_message.split('\n')[0][:100]
                     chat_summary = f"Agent: {first_line}"
-                    self._append_agent_output(f"Agent: {first_line}\n\n")
+                    self._append_agent_output(f"{first_line}", "assistant")
 
                 # Process commands regardless of whether code was found
                 # This allows agents to both write code to editor AND perform file operations
                 try:
                     commands = self._parse_agent_commands(cleaned_message)
                     if commands:
-                        self._append_agent_output("[File operations executed]\n")
+                        self._append_agent_output("[File operations executed]", "system")
                         chat_summary += "\n[File operations executed]"
 
                     # Execute each command and show results
@@ -6950,7 +7292,7 @@ class GroqChatroomApp(tk.Tk):
                         res = self._execute_agent_command(cmd)
 
                         # Show brief result in agent output panel
-                        self._append_agent_output(f"  • {cmd.get('action')}: {res.get('message')}\n")
+                        self._append_agent_output(f"• {cmd.get('action')}: {res.get('message')}", "system")
                         chat_summary += f"\n  • {cmd.get('action')}: {res.get('message')}"
 
                         # For read operations, show a preview of the file content
@@ -6959,10 +7301,10 @@ class GroqChatroomApp(tk.Tk):
                             max_preview = 500
                             if len(preview) > max_preview:
                                 preview = preview[:max_preview] + "\n... (truncated)"
-                            self._append_agent_output(f"\n--- {cmd.get('path')} ---\n{preview}\n--- end ---\n\n")
+                            self._append_agent_output(f"--- {cmd.get('path')} ---\n{preview}\n--- end ---", "system")
                 except Exception as exc:
                     # Handle any errors in command execution
-                    self._append_agent_output(f"Error: {exc}\n")
+                    self._append_agent_output(f"Error: {exc}", "system")
                     chat_summary += f"\nError: {exc}"
 
                 # Step 3: Store ONLY the summary in chat history, not the full code
